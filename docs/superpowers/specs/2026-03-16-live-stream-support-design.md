@@ -62,13 +62,13 @@ class VideoSource(Protocol):
 - Selects the best available video stream (preferring 720p or lower to balance quality and bandwidth)
 - Passes the resolved URL to `cv2.VideoCapture`
 - `is_live = True`
-- `fps` from yt-dlp metadata, fallback to OpenCV's reported FPS, fallback to 30
+- `fps` from yt-dlp metadata rounded to nearest integer, fallback to OpenCV's reported FPS rounded to nearest integer, fallback to 30. Rounding (not truncation) avoids off-by-one in time-series sampling for non-integer frame rates like 29.97
 - Validates URL and stream availability at construction time; raises clear error on failure
 
 **RtspSource**
 - Passes RTSP or RTMP URL directly to `cv2.VideoCapture`
 - `is_live = True`
-- `fps` from OpenCV's `CAP_PROP_FPS`, fallback to 30
+- `fps` from OpenCV's `CAP_PROP_FPS` rounded to nearest integer, fallback to 30
 - Validates stream is reachable at construction time via `cap.isOpened()`
 
 ### Reconnection Logic
@@ -82,9 +82,12 @@ Live sources (`is_live = True`) implement retry logic on transient read failures
 
 **`pipeline.py`:**
 - Constructor accepts a `VideoSource` instead of building `cv2.VideoCapture` internally
+- Remove the existing `CAP_PROP_POS_FRAMES` seek-based retry block; retry responsibility moves entirely to `VideoSource` for live sources. File sources treat a single read failure as EOF (current behavior)
 - For live sources (`is_live = True`):
-  - Total frame count is unavailable; progress logging uses elapsed time instead
-  - Registers a `SIGINT` signal handler that sets an internal `_shutdown` flag
+  - `total_frames` is passed as 0 to `finalize()`; `MetricsCollector.finalize()` already handles this via its `total_frames or self.frame_count` fallback
+  - Progress logging uses elapsed time instead of frame count percentage
+  - `video_path` in `finalize()` receives the source URL string (YouTube URL or RTSP URL), not `None`
+  - Registers a `SIGINT` signal handler that sets an internal `_shutdown` flag. The previous handler is saved via the return value of `signal.signal()` and restored unconditionally in a `finally` block after the loop exits
   - Each iteration of the frame loop checks `_shutdown`; when set, the loop exits cleanly
   - After loop exit, proceeds to `finalize()` and reporting as normal
 - For file sources: behavior is unchanged from current implementation
@@ -92,15 +95,14 @@ Live sources (`is_live = True`) implement retry logic on transient read failures
 ### Configuration Changes
 
 **`config.py`:**
-- `video_path` becomes optional (can be `None`)
-- Validation ensures at least one source is provided (either `video_path` in config or a CLI flag)
+- `video_path` becomes optional (can be `None`); no validation error if absent — config layer has no knowledge of CLI flags
 
 **`__main__.py`:**
 - New CLI flags:
   - `--youtube <url>` — YouTube stream URL
   - `--rtsp <url>` — RTSP or RTMP stream URL
 - Source resolution priority: `--youtube` or `--rtsp` flag overrides config's `video_path`
-- Validation: at most one source flag can be provided
+- Validation: at most one source flag can be provided; cross-validates that exactly one source exists across CLI flags and config `video_path` (this "at least one source" check lives here, not in `config.py`)
 - Factory logic constructs the appropriate `VideoSource` based on resolved input
 
 ### New Dependency
