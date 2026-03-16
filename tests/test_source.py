@@ -271,3 +271,89 @@ class TestYouTubeSource:
         assert ret is False
         assert frame is None
         assert mock_cap.read.call_count == 6  # 1 initial + 5 retries
+
+
+class TestRtspSource:
+    def test_opens_rtsp_url(self):
+        from traffic_detection_kpi.source import RtspSource
+
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.get.return_value = 25.0
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        mock_cap.read.return_value = (True, frame)
+
+        with patch("traffic_detection_kpi.source.cv2.VideoCapture", return_value=mock_cap):
+            source = RtspSource("rtsp://camera.example.com/stream")
+            ret, result = source.read()
+
+        assert ret is True
+        assert result is not None
+        assert source.is_live is True
+        assert source.fps == 25
+
+    def test_fps_fallback_to_30(self):
+        from traffic_detection_kpi.source import RtspSource
+
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.get.return_value = 0.0
+
+        with patch("traffic_detection_kpi.source.cv2.VideoCapture", return_value=mock_cap):
+            source = RtspSource("rtsp://camera.example.com/stream")
+
+        assert source.fps == 30
+
+    def test_raises_on_unreachable(self):
+        from traffic_detection_kpi.source import RtspSource
+
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = False
+
+        with patch("traffic_detection_kpi.source.cv2.VideoCapture", return_value=mock_cap):
+            with pytest.raises(RuntimeError, match="Cannot open stream"):
+                RtspSource("rtsp://bad.example.com/stream")
+
+    def test_rtmp_url(self):
+        from traffic_detection_kpi.source import RtspSource
+
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.get.return_value = 30.0
+
+        with patch("traffic_detection_kpi.source.cv2.VideoCapture", return_value=mock_cap):
+            source = RtspSource("rtmp://camera.example.com/live/stream")
+
+        assert source.is_live is True
+
+    def test_retry_on_transient_failure(self):
+        from traffic_detection_kpi.source import RtspSource
+
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.get.return_value = 30.0
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        mock_cap.read.side_effect = [(False, None), (True, frame)]
+
+        with patch("traffic_detection_kpi.source.cv2.VideoCapture", return_value=mock_cap), \
+             patch("traffic_detection_kpi.source.time.sleep"):
+            source = RtspSource("rtsp://camera.example.com/stream")
+            ret, result = source.read()
+
+        assert ret is True
+
+    def test_retry_exhausted(self):
+        from traffic_detection_kpi.source import RtspSource
+
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.get.return_value = 30.0
+        mock_cap.read.return_value = (False, None)
+
+        with patch("traffic_detection_kpi.source.cv2.VideoCapture", return_value=mock_cap), \
+             patch("traffic_detection_kpi.source.time.sleep"):
+            source = RtspSource("rtsp://camera.example.com/stream")
+            ret, frame = source.read()
+
+        assert ret is False
+        assert mock_cap.read.call_count == 6  # 1 initial + 5 retries

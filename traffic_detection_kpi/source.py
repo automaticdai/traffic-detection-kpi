@@ -129,3 +129,42 @@ class YouTubeSource:
     def release(self) -> None:
         self._cap.release()
 
+
+class RtspSource:
+    _MAX_RETRIES = 5
+    _RETRY_DELAY = 1.0
+
+    def __init__(self, url: str) -> None:
+        self._url = url
+        self._cap = cv2.VideoCapture(url)
+        if not self._cap.isOpened():
+            raise RuntimeError(f"Cannot open stream: {url}")
+        cv_fps = self._cap.get(cv2.CAP_PROP_FPS)
+        self._fps = round(cv_fps) if cv_fps > 0 else 30
+
+    def read(self) -> tuple[bool, np.ndarray | None]:
+        ret, frame = self._cap.read()
+        if ret:
+            return True, frame
+        for attempt in range(self._MAX_RETRIES):
+            logger.warning("Stream read failed, retry %d/%d", attempt + 1, self._MAX_RETRIES)
+            time.sleep(self._RETRY_DELAY)
+            ret, frame = self._cap.read()
+            if ret:
+                return True, frame
+        return False, None
+
+    @property
+    def fps(self) -> int:
+        return self._fps
+
+    @property
+    def is_live(self) -> bool:
+        return True
+
+    @property
+    def url(self) -> str:
+        return self._url
+
+    def release(self) -> None:
+        self._cap.release()
