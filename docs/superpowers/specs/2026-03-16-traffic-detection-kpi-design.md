@@ -2,7 +2,7 @@
 
 ## Overview
 
-Offline video analytics system that processes recorded traffic video to compute per-lane KPIs: throughput, queue length, wait time, and vehicle class breakdown. Results are exported as JSON and matplotlib charts.
+Offline video analytics system that processes recorded traffic video to compute per-lane KPIs: throughput, queue length, dwell time, and vehicle class breakdown. Results are exported as JSON and matplotlib charts.
 
 ## Decisions
 
@@ -10,9 +10,12 @@ Offline video analytics system that processes recorded traffic video to compute 
 - **Lane definition:** User provides lane polygons in a YAML config file per video
 - **Output formats:** JSON + matplotlib charts (PNGs)
 - **Tracker:** DeepSort (accurate re-identification)
-- **Detector:** YOLO11m (medium — good accuracy, reasonable speed for offline use)
-- **Vehicle classes:** car, motorcycle, bus, truck (no pedestrians)
+- **Detector:** YOLO11m (medium — good accuracy, reasonable speed for offline use; upgrade from nano in prototype)
+- **Vehicle classes:** car, motorcycle, bus, truck (no pedestrians — removed intentionally; can be re-enabled via config)
 - **Lane count:** Configurable (N lanes)
+- **Pub/Sub system:** Removed. The prototype's Publisher/Subscriber was scaffolding for real-time use. Not needed for offline analytics.
+- **Annotated video output:** Not included. The system produces metrics and charts only. Annotated video can be added later as an optional output if needed.
+- **Frame processing:** Every frame is processed. DeepSort requires continuous frames for reliable re-identification. No frame skipping.
 
 ## Configuration
 
@@ -24,7 +27,7 @@ output_dir: "./output"
 model:
   path: "yolo11m.pt"
   confidence: 0.2
-  classes: [car, motorcycle, bus, truck]
+  classes: [car, motorcycle, bus, truck]  # COCO class names (mapped to IDs internally)
 tracker:
   type: deepsort
   max_age: 20
@@ -40,7 +43,14 @@ lanes:
     polygon: [[770, 550], [900, 550], [770, 200], [670, 200]]
 ```
 
-A config loader validates the schema (required fields, polygon format, valid class names) and returns a typed dataclass.
+`config.py` validates the schema (required fields, polygon format, non-self-intersecting polygons, valid class names) and returns a typed dataclass. Class name strings are mapped to COCO integer IDs internally:
+
+| Name       | COCO ID |
+|------------|---------|
+| car        | 2       |
+| motorcycle | 3       |
+| bus        | 5       |
+| truck      | 7       |
 
 ## Package Structure
 
@@ -52,24 +62,35 @@ traffic_detection_kpi/
   detection.py           # YoloDetector: wraps YOLO model, returns standardized detections
   tracking.py            # DeepSortTracker: wraps DeepSort, maps detections to tracked objects
   lanes.py               # LaneZone class: polygon definition, point-in-polygon checks
-  metrics.py             # MetricsCollector: per-lane queue length, throughput, wait times
+  metrics.py             # MetricsCollector: per-lane queue length, throughput, dwell times
   pipeline.py            # VideoPipeline: reads frames, orchestrates detect->track->classify->metrics
   reporting.py           # ReportGenerator: JSON export + matplotlib charts
 configs/
   example.yaml           # Example config file
+tests/
+  test_config.py
+  test_detection.py
+  test_tracking.py
+  test_lanes.py
+  test_metrics.py
+  test_pipeline.py
+  test_reporting.py
+pyproject.toml
 ```
 
 ## Data Flow
 
 ```
 Video Frame
-  -> YoloDetector.detect(frame) -> list[Detection(bbox, class_id, confidence)]
-  -> DeepSortTracker.track(detections, frame) -> list[TrackedObject(track_id, bbox, class_id)]
+  -> YoloDetector.detect(frame) -> list[Detection]        (bbox in xywh format)
+  -> DeepSortTracker.track(detections, frame) -> list[TrackedObject]  (bbox in ltrb format, center computed)
   -> LaneZone.classify(tracked_objects) -> dict[lane_name -> list[TrackedObject]]
   -> MetricsCollector.update(lane_assignments) -> updates running KPIs
   -> (after all frames) MetricsCollector.finalize() -> MetricsResult
   -> ReportGenerator.generate(metrics_result) -> JSON file + chart PNGs
 ```
+
+**Bbox format conversion:** `Detection` uses xywh (what YOLO returns). `DeepSortTracker.track()` converts xywh to the format DeepSort expects for `update_tracks()`, then converts DeepSort's output (`to_ltrb()`) to populate `TrackedObject.bbox` in ltrb format. All downstream consumers (LaneZone, MetricsCollector) receive ltrb.
 
 Each module only depends on the one before it in the chain — no circular dependencies.
 
@@ -80,7 +101,7 @@ Each module only depends on the one before it in the chain — no circular depen
 ```python
 @dataclass
 class Detection:
-    bbox: tuple[int, int, int, int]  # x1, y1, w, h
+    bbox: tuple[int, int, int, int]  # x1, y1, w, h (xywh)
     class_id: int
     class_name: str
     confidence: float
@@ -91,47 +112,60 @@ class TrackedObject:
     bbox: tuple[int, int, int, int]  # x1, y1, x2, y2 (ltrb)
     class_id: int
     class_name: str
-    center: tuple[int, int]
+    center: tuple[int, int]  # midpoint of ltrb bbox, computed by DeepSortTracker
+
+@dataclass
+class LaneMetrics:
+    throughput_total: int
+    throughput_rate_avg: float  # vehicles per second, averaged over entire video
+    vehicle_counts: dict[str, int]  # class_name -> count
+    queue_length_timeseries: list[int]  # sampled once per second
+    avg_dwell_time_timeseries: list[float]  # sampled once per second
+
+@dataclass
+class MetricsResult:
+    video_path: str
+    total_frames: int
+    duration_seconds: float
+    fps: int
+    lanes: dict[str, LaneMetrics]  # lane_name -> LaneMetrics
 ```
 
 ### YoloDetector
 
-- `__init__(model_path, confidence, class_filter)` — loads model, stores allowed classes
-- `detect(frame) -> list[Detection]`
+- `__init__(model_path, confidence, class_filter)` — loads model, stores allowed COCO class IDs
+- `detect(frame) -> list[Detection]` — runs inference, filters by allowed classes
 
 ### DeepSortTracker
 
 - `__init__(config)` — initializes DeepSort with tracker params from config
-- `track(detections, frame) -> list[TrackedObject]`
+- `track(detections, frame) -> list[TrackedObject]` — converts Detection xywh to DeepSort input format, runs tracking, converts output to TrackedObject with ltrb bbox and center = `((x1+x2)//2, (y1+y2)//2)`
 
 ### LaneZone
 
 - `__init__(name, polygon_coords)` — creates a Shapely Polygon
 - `contains(point) -> bool`
-- Class method `classify(lanes, tracked_objects) -> dict[str, list[TrackedObject]]` — assigns each object to a lane (or none)
+- Class method `classify(lanes, tracked_objects) -> dict[str, list[TrackedObject]]` — assigns each object to a lane based on its center point. **First-match wins:** lanes are checked in config order; an object is assigned to the first lane whose polygon contains its center. Objects matching no lane are excluded.
 
 ### MetricsCollector
 
 - `__init__(lane_names, video_fps)`
-- `update(lane_assignments)` — called per frame; updates queue counts, wait time tracking, throughput counters
+- `update(lane_assignments)` — called per frame; updates queue counts, dwell time tracking, throughput counters
 - `finalize() -> MetricsResult` — computes final KPIs
-- Internally tracks: per-lane current queue length, per-track frame count (for wait time), per-lane total throughput, and per-second snapshots for time-series charts
-
-### MetricsResult
-
-- Per-lane totals: throughput, vehicle counts by class
-- Time-series: queue length over time, average wait time over time (sampled every second)
+- Internally tracks: per-lane current queue length, per-track frame count (for dwell time), per-lane total throughput, and per-second snapshots for time-series charts
+- **Track pruning:** tracks not seen for `tracker.max_age` frames are removed from the internal dwell time dictionary to prevent unbounded memory growth
 
 ### ReportGenerator
 
 - `__init__(output_dir)`
-- `generate(metrics_result)` — writes `metrics.json` + chart PNGs
+- `generate(metrics_result: MetricsResult)` — writes `metrics.json` + chart PNGs (throughput bar chart, queue length over time, dwell time over time, vehicle class breakdown)
 
 ## Pipeline Orchestration
 
 ```python
 class VideoPipeline:
     def __init__(self, config: Config):
+        self.config = config
         self.detector = YoloDetector(config.model)
         self.tracker = DeepSortTracker(config.tracker)
         self.lanes = [LaneZone(l.name, l.polygon) for l in config.lanes]
@@ -141,16 +175,30 @@ class VideoPipeline:
         )
         self.reporter = ReportGenerator(config.output_dir)
 
+    def _get_fps(self, video_path: str) -> int:
+        """Read FPS from video file metadata via cv2.CAP_PROP_FPS."""
+        cap = cv2.VideoCapture(video_path)
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        cap.release()
+        return fps
+
     def run(self):
-        cap = cv2.VideoCapture(config.video_path)
+        cap = cv2.VideoCapture(self.config.video_path)
+        if not cap.isOpened():
+            raise RuntimeError(f"Cannot open video: {self.config.video_path}")
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_num = 0
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
+            frame_num += 1
             detections = self.detector.detect(frame)
             tracked = self.tracker.track(detections, frame)
             assignments = LaneZone.classify(self.lanes, tracked)
             self.metrics.update(assignments)
+            if frame_num % 100 == 0:
+                logger.info(f"Processed {frame_num}/{total_frames} frames")
         cap.release()
         result = self.metrics.finalize()
         self.reporter.generate(result)
@@ -162,7 +210,14 @@ class VideoPipeline:
 python -m traffic_detection_kpi --config configs/four_lanes.yaml
 ```
 
-`__main__.py` parses args, loads the config, creates `VideoPipeline`, and calls `run()`. Progress is printed to stdout (frame count, percentage complete).
+`__main__.py` parses args, loads the config, creates `VideoPipeline`, and calls `run()`. Uses Python's `logging` module (INFO level by default, DEBUG with `--verbose`).
+
+## Error Handling
+
+- **Video file not found / unreadable:** `VideoPipeline.run()` raises `RuntimeError` with descriptive message
+- **Invalid config:** `config.py` raises `ValueError` with details on which field failed validation (missing fields, invalid polygon, unknown class name)
+- **Model file not found:** `YoloDetector.__init__()` raises `FileNotFoundError`
+- **Corrupted frames:** `cap.read()` returning `(False, None)` mid-video is logged as a warning; processing continues with next frame rather than stopping
 
 ## Metrics Computation
 
@@ -174,9 +229,9 @@ A vehicle counts toward a lane's throughput once it has been present in that lan
 
 Number of tracked objects currently inside a lane polygon on a given frame. Sampled once per second for the time-series output.
 
-### Wait Time
+### Dwell Time
 
-For each tracked object in a lane, wait time = number of frames present / video_fps (in seconds). Per-lane average wait time is computed each frame and sampled once per second for time-series.
+For each tracked object in a lane, dwell time = number of frames present / video_fps (in seconds). This measures how long a vehicle is visible within a lane zone — not whether it is stationary. Per-lane average dwell time is computed each frame and sampled once per second for time-series.
 
 ### Vehicle Class Breakdown
 
@@ -192,7 +247,7 @@ output/
   charts/
     throughput_by_lane.png
     queue_length_over_time.png
-    wait_time_over_time.png
+    dwell_time_over_time.png
     vehicle_class_breakdown.png
 ```
 
@@ -207,16 +262,29 @@ output/
   "lanes": {
     "Lane 1": {
       "throughput_total": 42,
-      "throughput_per_second": 0.62,
+      "throughput_rate_avg": 0.62,
       "vehicle_counts": {"car": 35, "motorcycle": 3, "bus": 2, "truck": 2},
       "queue_length_timeseries": [2, 3, 1],
-      "avg_wait_time_timeseries": [1.2, 2.1, 0.8]
+      "avg_dwell_time_timeseries": [1.2, 2.1, 0.8]
     }
   }
 }
 ```
 
+## Testing Strategy
+
+- **Unit tests** for each module using pytest:
+  - `test_config.py` — valid/invalid YAML parsing, class name to COCO ID mapping
+  - `test_detection.py` — mock YOLO model, verify Detection output format and class filtering
+  - `test_tracking.py` — mock DeepSort, verify xywh-to-ltrb conversion and center computation
+  - `test_lanes.py` — point-in-polygon with known coordinates, first-match-wins ordering, objects outside all lanes
+  - `test_metrics.py` — synthetic frame-by-frame updates, verify throughput threshold, dwell time accumulation, per-second sampling, track pruning
+  - `test_reporting.py` — verify JSON structure, chart file creation
+- **Integration test** (`test_pipeline.py`): run the full pipeline on a short test video clip (5-10 seconds) with known lane polygons and verify output metrics are within expected ranges
+
 ## Dependencies
+
+Specified in `pyproject.toml`:
 
 - ultralytics (YOLO)
 - deep-sort-realtime (DeepSort tracker)
@@ -224,3 +292,4 @@ output/
 - shapely (point-in-polygon for lane classification)
 - matplotlib, seaborn (chart generation)
 - pyyaml (config loading)
+- pytest (dev dependency, testing)
