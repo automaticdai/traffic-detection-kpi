@@ -31,8 +31,8 @@ A new module `traffic_detection_kpi/annotator.py` with a `FrameAnnotator` class.
 
 ```python
 class FrameAnnotator:
-    def __init__(self, lane_names: list[str], fps: int) -> None:
-        """Initialize with lane names (for consistent color assignment) and source FPS."""
+    def __init__(self, lane_names: list[str], lane_polygons: list[list[list[int]]], fps: int) -> None:
+        """Initialize with lane names, their polygon coordinates, and source FPS."""
         ...
 
     def draw(
@@ -98,16 +98,17 @@ def snapshot(self) -> dict:
 - `avg_dwell`: average dwell time in seconds across currently tracked objects in the lane
 - `vehicle_counts`: class breakdown dict
 
-This method reads existing internal state — no new accumulators needed. The pipeline passes the snapshot to the annotator each frame.
+To compute `queue_length` and `avg_dwell` per lane, `update()` must store the most recent `lane_assignments` dict as `self._last_lane_assignments`. This is the one new piece of state needed — `snapshot()` reads it to determine which tracks are currently in each lane and their dwell times. The `elapsed_frames` field in the snapshot is sourced from the existing `self.frame_count` attribute.
 
 ### Pipeline Changes
 
 **`pipeline.py`:**
-- `VideoPipeline.__init__` accepts `show: bool = False`
-- If `show` is True, construct a `FrameAnnotator(lane_names, source.fps)` at the start of `run()`
+- `VideoPipeline.__init__` accepts `show: bool = False` and stores it as `self.show`
+- In `run()`, after `source` is resolved (either injected or created as `FileSource`), if `self.show` is True, construct `FrameAnnotator(lane_names, lane_polygons, source.fps)` and pass it to `_run_loop`
 - In `_run_loop`, after `metrics.update()`:
-  - If showing: call `metrics.snapshot()`, pass to `annotator.draw()`, display with `cv2.imshow("Traffic Detection KPI", annotated)` and `cv2.waitKey(1)`
-- After the loop, if showing: call `cv2.destroyAllWindows()`
+  - If annotator is provided: call `metrics.snapshot()`, pass to `annotator.draw()`, display with `cv2.imshow("Traffic Detection KPI", annotated)` and `cv2.waitKey(1)`
+- After the loop, if annotator was used: call `cv2.destroyAllWindows()`
+- **Headless environments:** If `cv2.imshow()` raises an error (no display available), log a warning and disable the overlay for the rest of the run rather than crashing the pipeline
 
 **`__main__.py`:**
 - Add `--show` flag: `parser.add_argument("--show", action="store_true", help="Show live GUI overlay")`
@@ -127,7 +128,7 @@ This method reads existing internal state — no new accumulators needed. The pi
 ### Testing
 
 **New tests in `tests/test_annotator.py`:**
-- `test_draw_returns_frame_with_panel`: verify output width = input width + 300 (panel), same height
+- `test_draw_returns_frame_with_panel`: using a 640x480 input frame, verify output shape is (480, 940, 3) — input width + 300px panel, same height
 - `test_draw_with_empty_inputs`: no tracked objects, no lane assignments — should not crash, still returns frame with panel
 - `test_draw_with_detections`: verify output frame is valid numpy array with expected dimensions
 - `test_lane_colors_are_consistent`: same lane always gets the same color across calls
