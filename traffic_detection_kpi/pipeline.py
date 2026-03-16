@@ -1,9 +1,12 @@
 import logging
+import signal
+import time
 
 import cv2
 
 from traffic_detection_kpi.config import Config
 from traffic_detection_kpi.detection import YoloDetector
+from traffic_detection_kpi.source import FileSource, VideoSource
 from traffic_detection_kpi.tracking import DeepSortTracker
 from traffic_detection_kpi.lanes import LaneZone
 from traffic_detection_kpi.metrics import MetricsCollector
@@ -13,8 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 class VideoPipeline:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, source: VideoSource | None = None):
         self.config = config
+        self.source = source
         self.detector = YoloDetector(
             model_path=config.model.path,
             confidence=config.model.confidence,
@@ -23,35 +27,43 @@ class VideoPipeline:
         self.tracker = DeepSortTracker(config.tracker)
         self.lanes = [LaneZone(l.name, l.polygon) for l in config.lanes]
         self.reporter = ReportGenerator(config.output_dir)
-        self._fps: int | None = None
 
     def run(self):
-        cap = cv2.VideoCapture(self.config.video_path)
-        if not cap.isOpened():
-            raise RuntimeError(f"Cannot open video: {self.config.video_path}")
+        source = self.source or FileSource(self.config.video_path)
+        shutdown = False
 
-        self._fps = int(cap.get(cv2.CAP_PROP_FPS))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if source.is_live:
+            prev_handler = signal.getsignal(signal.SIGINT)
 
+            def _handle_sigint(signum, frame):
+                nonlocal shutdown
+                logger.info("Shutdown requested, finishing current frame...")
+                shutdown = True
+
+            signal.signal(signal.SIGINT, _handle_sigint)
+
+        try:
+            self._run_loop(source, shutdown_check=lambda: shutdown)
+        finally:
+            if source.is_live:
+                signal.signal(signal.SIGINT, prev_handler)
+            source.release()
+
+    def _run_loop(self, source: VideoSource, shutdown_check):
         metrics = MetricsCollector(
             lane_names=[l.name for l in self.lanes],
-            video_fps=self._fps,
+            video_fps=source.fps,
             max_age=self.config.tracker.max_age,
         )
 
+        video_path = source.url
         frame_num = 0
-        consecutive_failures = 0
-        while True:
-            ret, frame = cap.read()
+        start_time = time.monotonic()
+
+        while not shutdown_check():
+            ret, frame = source.read()
             if not ret:
-                consecutive_failures += 1
-                if consecutive_failures < 5 and frame_num < total_frames - 1:
-                    logger.warning(f"Corrupted frame at {frame_num}, seeking past it")
-                    frame_num += 1
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-                    continue
                 break
-            consecutive_failures = 0
             frame_num += 1
 
             detections = self.detector.detect(frame)
@@ -60,14 +72,17 @@ class VideoPipeline:
             metrics.update(assignments)
 
             if frame_num % 100 == 0:
-                logger.info(f"Processed {frame_num}/{total_frames} frames")
+                if source.is_live:
+                    elapsed = time.monotonic() - start_time
+                    logger.info("Processed %d frames (%.1fs elapsed)", frame_num, elapsed)
+                else:
+                    logger.info("Processed %d frames", frame_num)
 
-        cap.release()
-        logger.info(f"Processing complete: {frame_num} frames")
+        logger.info("Processing complete: %d frames", frame_num)
 
         result = metrics.finalize(
-            video_path=self.config.video_path,
+            video_path=video_path,
             total_frames=frame_num,
         )
         self.reporter.generate(result)
-        logger.info(f"Report saved to {self.config.output_dir}")
+        logger.info("Report saved to %s", self.config.output_dir)
