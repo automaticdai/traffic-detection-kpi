@@ -4,6 +4,8 @@ Integration test requires a video file and YOLO model to run.
 Skip by default; run with: pytest tests/test_pipeline.py -v --run-integration
 """
 import json
+import signal
+import os
 
 import pytest
 import numpy as np
@@ -56,6 +58,69 @@ lanes:
 
     assert mock_source.read.call_count == 3
     mock_source.release.assert_called_once()
+
+
+def test_pipeline_graceful_shutdown_on_sigint(tmp_path):
+    """Live source pipeline stops on SIGINT and still generates report."""
+    from traffic_detection_kpi.config import load_config
+    from traffic_detection_kpi.pipeline import VideoPipeline
+
+    config_content = f"""\
+video_path: "dummy.mp4"
+output_dir: "{tmp_path}"
+model:
+  path: "yolo11m.pt"
+  confidence: 0.2
+  classes: [car]
+tracker:
+  type: deepsort
+  max_age: 20
+  n_init: 2
+  max_cosine_distance: 0.8
+  embedder: mobilenet
+lanes:
+  - name: "Lane 1"
+    polygon: [[0, 0], [100, 0], [100, 100], [0, 100]]
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(config_content)
+    config = load_config(str(config_path))
+
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    call_count = 0
+
+    def mock_read():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 3:
+            # Simulate Ctrl+C on third read
+            os.kill(os.getpid(), signal.SIGINT)
+        return True, frame
+
+    mock_source = MagicMock()
+    mock_source.fps = 30
+    mock_source.is_live = True
+    mock_source.url = "https://youtube.com/test"
+    mock_source.read.side_effect = mock_read
+
+    mock_detector = MagicMock()
+    mock_detector.detect.return_value = []
+
+    mock_tracker = MagicMock()
+    mock_tracker.track.return_value = []
+
+    pipeline = VideoPipeline(config, source=mock_source)
+    pipeline.detector = mock_detector
+    pipeline.tracker = mock_tracker
+
+    original_handler = signal.getsignal(signal.SIGINT)
+    pipeline.run()
+
+    # Pipeline should have processed frames before shutdown
+    assert call_count >= 3
+    mock_source.release.assert_called_once()
+    # Verify SIGINT handler was restored to pre-run state
+    assert signal.getsignal(signal.SIGINT) is original_handler
 
 
 @pytest.mark.integration
