@@ -38,7 +38,7 @@ class TrackerConfig:
 
 @dataclass
 class Config:
-    video_path: str
+    video_path: str | None
     output_dir: str
     model: ModelConfig
     tracker: TrackerConfig
@@ -49,7 +49,7 @@ def load_config(path: str) -> Config:
     with open(path) as f:
         raw = yaml.safe_load(f)
 
-    _validate_required(raw, ["video_path", "output_dir", "model", "tracker", "lanes"])
+    _validate_required(raw, ["output_dir", "model", "tracker", "lanes"])
 
     model_raw = raw["model"]
     _validate_required(model_raw, ["path", "confidence", "classes"])
@@ -79,7 +79,7 @@ def load_config(path: str) -> Config:
         lanes.append(LaneConfig(name=lane_raw["name"], polygon=polygon))
 
     return Config(
-        video_path=raw["video_path"],
+        video_path=raw.get("video_path"),
         output_dir=raw["output_dir"],
         model=model,
         tracker=tracker,
