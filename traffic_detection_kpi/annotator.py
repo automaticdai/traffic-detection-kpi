@@ -6,7 +6,7 @@ import numpy as np
 from traffic_detection_kpi import TrackedObject
 
 # BGR color palette for lanes
-_PALETTE = [
+LANE_PALETTE = [
     (0, 200, 0),      # green
     (200, 100, 0),     # blue
     (0, 140, 255),     # orange
@@ -32,7 +32,7 @@ class FrameAnnotator:
         self._lane_names = lane_names
         self._lane_polygons = [np.array(p, dtype=np.int32) for p in lane_polygons]
         self._fps = fps
-        self._lane_colors = [_PALETTE[i % len(_PALETTE)] for i in range(len(lane_names))]
+        self._lane_colors = [LANE_PALETTE[i % len(LANE_PALETTE)] for i in range(len(lane_names))]
         self._lane_color_map = dict(zip(lane_names, self._lane_colors))
 
     def draw(
