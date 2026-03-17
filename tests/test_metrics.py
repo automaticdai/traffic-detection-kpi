@@ -77,3 +77,46 @@ def test_multiple_lanes():
     result = mc.finalize()
     assert result.lanes["L1"].throughput_total == 1
     assert result.lanes["L2"].throughput_total == 1
+
+
+def test_snapshot_returns_current_state():
+    mc = MetricsCollector(lane_names=["L1", "L2"], video_fps=30, max_age=20)
+    car1 = _make_obj(1, "car", 2)
+    bus2 = _make_obj(2, "bus", 5)
+
+    # Run 30 frames so throughput triggers for both
+    for _ in range(30):
+        mc.update({"L1": [car1], "L2": [bus2]})
+
+    snap = mc.snapshot()
+
+    # Structure
+    assert "lanes" in snap
+    assert "elapsed_frames" in snap
+    assert snap["elapsed_frames"] == 30
+
+    # L1
+    l1 = snap["lanes"]["L1"]
+    assert l1["queue_length"] == 1
+    assert l1["throughput_total"] == 1
+    assert l1["throughput_rate"] > 0
+    assert l1["avg_dwell"] > 0
+    assert l1["vehicle_counts"]["car"] == 1
+
+    # L2
+    l2 = snap["lanes"]["L2"]
+    assert l2["queue_length"] == 1
+    assert l2["throughput_total"] == 1
+    assert l2["vehicle_counts"]["bus"] == 1
+
+
+def test_snapshot_empty_lanes():
+    mc = MetricsCollector(lane_names=["L1"], video_fps=30, max_age=20)
+    mc.update({"L1": []})
+
+    snap = mc.snapshot()
+    l1 = snap["lanes"]["L1"]
+    assert l1["queue_length"] == 0
+    assert l1["throughput_total"] == 0
+    assert l1["avg_dwell"] == 0.0
+    assert l1["vehicle_counts"] == {}

@@ -27,6 +27,7 @@ class MetricsCollector:
 
     def update(self, lane_assignments: dict[str, list[TrackedObject]]):
         self.frame_count += 1
+        self._last_lane_assignments = lane_assignments
 
         seen_this_frame: set[int] = set()
         lane_queue: dict[str, int] = {name: 0 for name in self.lane_names}
@@ -71,6 +72,33 @@ class MetricsCollector:
                 dwell_vals = lane_dwell_values[lane_name]
                 avg_dwell = sum(dwell_vals) / len(dwell_vals) if dwell_vals else 0.0
                 self._dwell_ts[lane_name].append(avg_dwell)
+
+    def snapshot(self) -> dict:
+        """Return current per-lane metrics for live display."""
+        duration = self.frame_count / self.video_fps if self.video_fps > 0 else 0.0
+        assignments = getattr(self, "_last_lane_assignments", {})
+
+        lanes = {}
+        for name in self.lane_names:
+            objects = assignments.get(name, [])
+            dwell_values = []
+            for obj in objects:
+                frames = self._dwell_frames.get(obj.track_id, 0)
+                dwell_values.append(frames / self.video_fps if self.video_fps > 0 else 0.0)
+
+            total = self._throughput[name]
+            lanes[name] = {
+                "queue_length": len(objects),
+                "throughput_total": total,
+                "throughput_rate": total / duration if duration > 0 else 0.0,
+                "avg_dwell": sum(dwell_values) / len(dwell_values) if dwell_values else 0.0,
+                "vehicle_counts": dict(self._vehicle_counts[name]),
+            }
+
+        return {
+            "lanes": lanes,
+            "elapsed_frames": self.frame_count,
+        }
 
     def finalize(self, video_path: str = "", total_frames: int = 0) -> MetricsResult:
         duration = self.frame_count / self.video_fps if self.video_fps > 0 else 0.0
