@@ -46,6 +46,9 @@ def main():
         "--rtsp", metavar="URL", help="RTSP or RTMP stream URL"
     )
     parser.add_argument(
+        "--show", action="store_true", help="Show live GUI overlay"
+    )
+    parser.add_argument(
         "--verbose", action="store_true", help="Enable debug logging"
     )
     args = parser.parse_args()
@@ -57,7 +60,7 @@ def main():
 
     config = load_config(args.config)
     source = _build_source(args, config)
-    pipeline = VideoPipeline(config, source=source)
+    pipeline = VideoPipeline(config, source=source, show=args.show)
     pipeline.run()
 
 
