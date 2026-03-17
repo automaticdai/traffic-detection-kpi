@@ -75,10 +75,13 @@ All interactions use `cv2.setMouseCallback`:
 - **Left click near a vertex** (within 15px) — select vertex, enter drag mode
 - **Left mouse drag** — reposition selected vertex
 - **Left mouse release** — drop vertex at new position
-- **Left click on a polygon edge** (within 10px, not near a vertex) — insert a new vertex at the closest point on that edge segment
+- **Left click on a polygon edge** (within 10px, not near a vertex) — insert a new vertex at the closest point on that edge segment, rounded to integer coordinates
 - **Left click on empty space** — deselect current selection
 - **Right click on a vertex** — delete it (only if polygon has > 3 vertices; otherwise ignore)
 - **Right click inside a polygon** — select that lane as the active lane (for deletion with `d`)
+
+**Coordinate handling:**
+- All vertex coordinates are stored as `int`. Mouse event coordinates from OpenCV are already `int`. Edge insertion uses point-to-segment projection which may produce floats — these must be rounded to `int` before storage.
 
 **Hit detection math:**
 - Vertex proximity: Euclidean distance from click point to each vertex, threshold 15px
@@ -92,9 +95,9 @@ All interactions use `cv2.setMouseCallback`:
   - `Enter` finishes the polygon (minimum 3 points required, otherwise ignored)
   - Prompts for lane name in terminal via `input()`
   - `Esc` cancels and returns to edit mode
-- `d` — delete the currently selected lane (the one last right-clicked inside). If no lane selected, does nothing
+- `d` — delete the currently selected lane (the one last right-clicked inside). Vertex drag-selection does NOT update the active-lane-for-deletion state — only right-click inside a polygon sets it. If no lane has been right-click-selected, `d` does nothing
 - `Esc` — cancel current draw mode, deselect all
-- `q` — quit the editor:
+- `q` — quit the editor. If currently in draw mode, first cancels draw mode (discards in-progress polygon), then proceeds with quit:
   - If changes were made, prompt in terminal: "Save changes? (y/n/c): "
   - `y` — return `(True, updated_lanes)`
   - `n` — return `(False, original_lanes)`
@@ -128,8 +131,9 @@ def main():
 2. Determine video path: `args.video or config.video_path`
 3. Open video with `cv2.VideoCapture`, read first frame, release
 4. Build lane data list from config: `[{"name": l.name, "polygon": l.polygon} for l in config.lanes]`
-5. Launch `LaneEditor(frame, lanes, colors).run()`
-6. If `modified` is True, call `save_lanes_to_config(args.config, updated_lanes)`
+5. Compute lane colors: `colors = [LANE_PALETTE[i % len(LANE_PALETTE)] for i in range(len(config.lanes))]` using the public `LANE_PALETTE` constant from `annotator.py` (rename `_PALETTE` to `LANE_PALETTE` to make it importable)
+6. Launch `LaneEditor(frame, lanes, colors).run()`
+7. If `modified` is True, call `save_lanes_to_config(args.config, updated_lanes)`
 
 ### Config Writing
 
@@ -137,8 +141,8 @@ A function `save_lanes_to_config(config_path: str, lanes: list[dict])` in `edito
 
 1. Read the original YAML file with `yaml.safe_load`
 2. Replace the `lanes` key with the updated lane data
-3. Write back with `yaml.safe_dump` with `default_flow_style=False`
-4. This preserves all non-lane config fields (model, tracker, output_dir, video_path)
+3. Write back with `yaml.safe_dump(..., default_flow_style=False, sort_keys=False)`
+4. This preserves all non-lane config field values and key ordering. **Note:** YAML comments in the original file will be lost — this is a known limitation of `yaml.safe_dump`
 
 ### pyproject.toml Change
 
@@ -156,6 +160,7 @@ traffic-lane-editor = "traffic_detection_kpi.editor_cli:main"
 |------|--------|
 | `traffic_detection_kpi/lane_editor.py` | **New** — LaneEditor class |
 | `traffic_detection_kpi/editor_cli.py` | **New** — CLI entry point + config save function |
+| `traffic_detection_kpi/annotator.py` | Rename `_PALETTE` to `LANE_PALETTE` (public) |
 | `pyproject.toml` | Add `traffic-lane-editor` script entry point |
 | `tests/test_lane_editor.py` | **New** — unit tests |
 
