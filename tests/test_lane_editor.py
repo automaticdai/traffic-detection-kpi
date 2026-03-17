@@ -81,3 +81,52 @@ lanes:
     assert raw["tracker"]["max_age"] == 20
     assert len(raw["lanes"]) == 1
     assert raw["lanes"][0]["name"] == "New"
+
+
+def test_find_nearest_vertex_within_threshold():
+    from traffic_detection_kpi.lane_editor import find_nearest_vertex
+
+    polygon = [[100, 100], [200, 100], [200, 200], [100, 200]]
+    result = find_nearest_vertex((100, 100), polygon, threshold=15)
+    assert result == 0
+
+    result = find_nearest_vertex((210, 100), polygon, threshold=15)
+    assert result == 1
+
+    result = find_nearest_vertex((150, 150), polygon, threshold=15)
+    assert result is None
+
+
+def test_find_nearest_edge_within_threshold():
+    from traffic_detection_kpi.lane_editor import find_nearest_edge
+
+    polygon = [[0, 0], [100, 0], [100, 100], [0, 100]]
+    result = find_nearest_edge((50, 5), polygon, threshold=10)
+    assert result == 0
+
+    result = find_nearest_edge((50, 97), polygon, threshold=10)
+    assert result == 2
+
+    result = find_nearest_edge((50, 50), polygon, threshold=10)
+    assert result is None
+
+
+def test_project_point_on_edge_returns_int():
+    from traffic_detection_kpi.lane_editor import project_point_on_edge
+
+    result = project_point_on_edge((50, 5), [0, 0], [100, 0])
+    assert result == [50, 0]
+    assert isinstance(result[0], int)
+    assert isinstance(result[1], int)
+
+    result = project_point_on_edge((30, 25), [0, 0], [100, 100])
+    assert isinstance(result[0], int)
+    assert isinstance(result[1], int)
+
+
+def test_no_delete_below_three_vertices():
+    from traffic_detection_kpi.lane_editor import can_delete_vertex
+
+    assert can_delete_vertex(4) is True
+    assert can_delete_vertex(3) is False
+    assert can_delete_vertex(2) is False
