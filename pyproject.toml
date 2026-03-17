@@ -22,3 +22,4 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 traffic-kpi = "traffic_detection_kpi.__main__:main"
+traffic-lane-editor = "traffic_detection_kpi.editor_cli:main"
