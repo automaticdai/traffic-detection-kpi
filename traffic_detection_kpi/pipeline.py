@@ -87,7 +87,9 @@ class VideoPipeline:
                     snap = metrics.snapshot()
                     annotated = annotator.draw(frame, tracked, assignments, snap)
                     cv2.imshow("Traffic Detection KPI", annotated)
-                    cv2.waitKey(1)
+                    delay = max(1, 1000 // source.fps)
+                    if cv2.waitKey(delay) & 0xFF == ord("q"):
+                        break
                 except cv2.error:
                     logger.warning("No display available, disabling GUI overlay")
                     annotator = None
