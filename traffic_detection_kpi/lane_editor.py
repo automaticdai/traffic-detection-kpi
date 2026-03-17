@@ -103,12 +103,14 @@ class LaneEditor:
         self._window_name = "Lane Editor"
 
     def run(self) -> tuple[bool, list[dict]]:
-        cv2.namedWindow(self._window_name)
+        cv2.namedWindow(self._window_name, cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(self._window_name, self._mouse_cb)
         self._redraw()
 
         while True:
-            key = cv2.waitKey(30) & 0xFF
+            key = cv2.waitKey(50) & 0xFF
+            if key == 255:  # no key pressed
+                continue
             if key == ord("q"):
                 if self._draw_mode:
                     self._draw_mode = False
@@ -278,9 +280,9 @@ class LaneEditor:
         h, w = canvas.shape[:2]
         cv2.rectangle(canvas, (0, h - _STATUS_HEIGHT), (w, h), (30, 30, 30), -1)
         if self._draw_mode:
-            status = f"DRAW — click to place points ({len(self._draw_points)} placed), Enter to finish, Esc to cancel"
+            status = f"DRAW - click to place points ({len(self._draw_points)} placed), Enter to finish, Esc to cancel"
         else:
-            status = "EDIT — n: new lane | d: delete lane | q: quit | Esc: deselect"
+            status = "EDIT - n: new lane | d: delete lane | q: quit | Esc: deselect"
         cv2.putText(canvas, status, (10, h - 12), _FONT, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
 
         cv2.imshow(self._window_name, canvas)
