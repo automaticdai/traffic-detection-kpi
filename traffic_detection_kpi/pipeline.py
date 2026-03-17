@@ -11,14 +11,16 @@ from traffic_detection_kpi.tracking import DeepSortTracker
 from traffic_detection_kpi.lanes import LaneZone
 from traffic_detection_kpi.metrics import MetricsCollector
 from traffic_detection_kpi.reporting import ReportGenerator
+from traffic_detection_kpi.annotator import FrameAnnotator
 
 logger = logging.getLogger(__name__)
 
 
 class VideoPipeline:
-    def __init__(self, config: Config, source: VideoSource | None = None):
+    def __init__(self, config: Config, source: VideoSource | None = None, show: bool = False):
         self.config = config
         self.source = source
+        self.show = show
         self.detector = YoloDetector(
             model_path=config.model.path,
             confidence=config.model.confidence,
@@ -30,6 +32,13 @@ class VideoPipeline:
 
     def run(self):
         source = self.source or FileSource(self.config.video_path)
+        annotator = None
+        if self.show:
+            annotator = FrameAnnotator(
+                lane_names=[l.name for l in self.lanes],
+                lane_polygons=[l.polygon for l in self.config.lanes],
+                fps=source.fps,
+            )
         shutdown = False
 
         if source.is_live:
@@ -43,13 +52,15 @@ class VideoPipeline:
             signal.signal(signal.SIGINT, _handle_sigint)
 
         try:
-            self._run_loop(source, shutdown_check=lambda: shutdown)
+            self._run_loop(source, shutdown_check=lambda: shutdown, annotator=annotator)
         finally:
             if source.is_live:
                 signal.signal(signal.SIGINT, prev_handler)
             source.release()
+            if annotator:
+                cv2.destroyAllWindows()
 
-    def _run_loop(self, source: VideoSource, shutdown_check):
+    def _run_loop(self, source: VideoSource, shutdown_check, annotator=None):
         metrics = MetricsCollector(
             lane_names=[l.name for l in self.lanes],
             video_fps=source.fps,
@@ -70,6 +81,16 @@ class VideoPipeline:
             tracked = self.tracker.track(detections, frame)
             assignments = LaneZone.classify(self.lanes, tracked)
             metrics.update(assignments)
+
+            if annotator:
+                try:
+                    snap = metrics.snapshot()
+                    annotated = annotator.draw(frame, tracked, assignments, snap)
+                    cv2.imshow("Traffic Detection KPI", annotated)
+                    cv2.waitKey(1)
+                except cv2.error:
+                    logger.warning("No display available, disabling GUI overlay")
+                    annotator = None
 
             if frame_num % 100 == 0:
                 if source.is_live:
