@@ -39,6 +39,7 @@ class VideoPipeline:
                 lane_polygons=[l.polygon for l in self.config.lanes],
                 fps=source.fps,
             )
+            cv2.namedWindow("Traffic Detection KPI", cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         shutdown = False
 
         if source.is_live:

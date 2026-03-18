@@ -109,8 +109,21 @@ class LaneEditor:
     def _clamp(self, x: int, y: int) -> list[int]:
         return [max(0, min(x, self._w - 1)), max(0, min(y, self._h - 1))]
 
+    def _to_frame_coords(self, x: int, y: int) -> tuple[int, int]:
+        """Map mouse coordinates from display space to original frame space."""
+        try:
+            _, _, dw, dh = cv2.getWindowImageRect(self._window_name)
+        except cv2.error:
+            return x, y
+        if dw <= 0 or dh <= 0:
+            return x, y
+        fx = round(x * self._w / dw)
+        fy = round(y * self._h / dh)
+        return fx, fy
+
     def run(self) -> tuple[bool, list[dict]]:
-        cv2.namedWindow(self._window_name, cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(self._window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(self._window_name, self._w, self._h)
         cv2.setMouseCallback(self._window_name, self._mouse_cb)
         self._redraw()
 
@@ -152,15 +165,18 @@ class LaneEditor:
         return False, self._original_lanes
 
     def _mouse_cb(self, event, x, y, flags, param):
+        # Map display coordinates to original frame coordinates
+        fx, fy = self._to_frame_coords(x, y)
+
         if self._draw_mode:
             if event == cv2.EVENT_LBUTTONDOWN:
-                self._draw_points.append(self._clamp(x, y))
+                self._draw_points.append(self._clamp(fx, fy))
                 self._redraw()
             return
 
         if event == cv2.EVENT_LBUTTONDOWN:
             for li, lane in enumerate(self._lanes):
-                vi = find_nearest_vertex((x, y), lane["polygon"], threshold=15)
+                vi = find_nearest_vertex((fx, fy), lane["polygon"], threshold=15)
                 if vi is not None:
                     self._sel_lane_idx = li
                     self._sel_vert_idx = vi
@@ -169,10 +185,10 @@ class LaneEditor:
                     return
 
             for li, lane in enumerate(self._lanes):
-                ei = find_nearest_edge((x, y), lane["polygon"], threshold=10)
+                ei = find_nearest_edge((fx, fy), lane["polygon"], threshold=10)
                 if ei is not None:
                     new_pt = project_point_on_edge(
-                        (x, y), lane["polygon"][ei],
+                        (fx, fy), lane["polygon"][ei],
                         lane["polygon"][(ei + 1) % len(lane["polygon"])]
                     )
                     lane["polygon"].insert(ei + 1, new_pt)
@@ -188,7 +204,7 @@ class LaneEditor:
 
         elif event == cv2.EVENT_MOUSEMOVE and self._dragging:
             if self._sel_lane_idx is not None and self._sel_vert_idx is not None:
-                self._lanes[self._sel_lane_idx]["polygon"][self._sel_vert_idx] = self._clamp(x, y)
+                self._lanes[self._sel_lane_idx]["polygon"][self._sel_vert_idx] = self._clamp(fx, fy)
                 self._modified = True
                 self._redraw()
 
@@ -199,7 +215,7 @@ class LaneEditor:
             # Right-click inside a polygon selects it for deletion with 'd'
             for li, lane in enumerate(self._lanes):
                 poly = np.array(lane["polygon"], dtype=np.int32)
-                if cv2.pointPolygonTest(poly, (x, y), False) >= 0:
+                if cv2.pointPolygonTest(poly, (fx, fy), False) >= 0:
                     self._active_lane_idx = li
                     self._redraw()
                     return
@@ -236,7 +252,8 @@ class LaneEditor:
         self._draw_mode = False
         self._draw_points.clear()
         self._modified = True
-        cv2.namedWindow(self._window_name)
+        cv2.namedWindow(self._window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(self._window_name, self._w, self._h)
         cv2.setMouseCallback(self._window_name, self._mouse_cb)
         self._redraw()
 
