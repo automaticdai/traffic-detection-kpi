@@ -82,6 +82,7 @@ _SELECTED_RADIUS = 8
 class LaneEditor:
     def __init__(self, frame: np.ndarray, lanes: list[dict], lane_colors: list[tuple]) -> None:
         self._frame = frame.copy()
+        self._h, self._w = frame.shape[:2]
         self._lanes = [dict(l) for l in lanes]
         for lane in self._lanes:
             lane["polygon"] = [list(p) for p in lane["polygon"]]
@@ -101,6 +102,9 @@ class LaneEditor:
         self._active_lane_idx: int | None = None
 
         self._window_name = "Lane Editor"
+
+    def _clamp(self, x: int, y: int) -> list[int]:
+        return [max(0, min(x, self._w - 1)), max(0, min(y, self._h - 1))]
 
     def run(self) -> tuple[bool, list[dict]]:
         cv2.namedWindow(self._window_name, cv2.WINDOW_AUTOSIZE)
@@ -145,7 +149,7 @@ class LaneEditor:
     def _mouse_cb(self, event, x, y, flags, param):
         if self._draw_mode:
             if event == cv2.EVENT_LBUTTONDOWN:
-                self._draw_points.append([x, y])
+                self._draw_points.append(self._clamp(x, y))
                 self._redraw()
             return
 
@@ -179,7 +183,7 @@ class LaneEditor:
 
         elif event == cv2.EVENT_MOUSEMOVE and self._dragging:
             if self._sel_lane_idx is not None and self._sel_vert_idx is not None:
-                self._lanes[self._sel_lane_idx]["polygon"][self._sel_vert_idx] = [x, y]
+                self._lanes[self._sel_lane_idx]["polygon"][self._sel_vert_idx] = self._clamp(x, y)
                 self._modified = True
                 self._redraw()
 
