@@ -117,8 +117,10 @@ class LaneEditor:
             return x, y
         if dw <= 0 or dh <= 0:
             return x, y
+        # Display image is frame + status bar stacked vertically
+        display_h = self._h + _STATUS_HEIGHT
         fx = round(x * self._w / dw)
-        fy = round(y * self._h / dh)
+        fy = round(y * display_h / dh)
         return fx, fy
 
     def run(self) -> tuple[bool, list[dict]]:
@@ -198,8 +200,20 @@ class LaneEditor:
                     self._redraw()
                     return
 
+            # No vertex or edge hit — check if inside a polygon to select lane
+            for li, lane in enumerate(self._lanes):
+                poly = np.array(lane["polygon"], dtype=np.int32)
+                if cv2.pointPolygonTest(poly, (float(fx), float(fy)), False) >= 0:
+                    self._active_lane_idx = li
+                    self._sel_lane_idx = None
+                    self._sel_vert_idx = None
+                    self._redraw()
+                    return
+
+            # Click on empty space — deselect everything
             self._sel_lane_idx = None
             self._sel_vert_idx = None
+            self._active_lane_idx = None
             self._redraw()
 
         elif event == cv2.EVENT_MOUSEMOVE and self._dragging:
@@ -210,17 +224,6 @@ class LaneEditor:
 
         elif event == cv2.EVENT_LBUTTONUP:
             self._dragging = False
-
-        elif event == cv2.EVENT_RBUTTONDOWN:
-            # Right-click inside a polygon selects it for deletion with 'd'
-            for li, lane in enumerate(self._lanes):
-                poly = np.array(lane["polygon"], dtype=np.int32)
-                if cv2.pointPolygonTest(poly, (float(fx), float(fy)), False) >= 0:
-                    self._active_lane_idx = li
-                    self._redraw()
-                    return
-            # Right-click outside any polygon deselects
-            self._active_lane_idx = None
             self._redraw()
 
     def _delete_selected_vertex(self):
@@ -313,7 +316,7 @@ class LaneEditor:
         if self._draw_mode:
             status = f"DRAW - click to place points ({len(self._draw_points)} placed), Enter to finish, Esc to cancel"
         else:
-            status = "EDIT - n: new | d: delete lane | x: delete vertex | q: quit | Esc: deselect"
+            status = "click lane to select | n: new | d: del lane | x: del vertex | q: quit"
         cv2.putText(bar, status, (10, 28), _FONT, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
         display = np.vstack([canvas, bar])
 
