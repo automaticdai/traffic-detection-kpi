@@ -86,6 +86,9 @@ class LaneEditor:
         self._lanes = [dict(l) for l in lanes]
         for lane in self._lanes:
             lane["polygon"] = [list(p) for p in lane["polygon"]]
+        # Clamp any out-of-frame vertices into the frame
+        for lane in self._lanes:
+            lane["polygon"] = [self._clamp(p[0], p[1]) for p in lane["polygon"]]
         self._lane_colors = list(lane_colors)
         self._original_lanes = [
             {"name": l["name"], "polygon": [list(p) for p in l["polygon"]]}
@@ -191,6 +194,15 @@ class LaneEditor:
             self._dragging = False
 
         elif event == cv2.EVENT_RBUTTONDOWN:
+            # First check: right-click inside a polygon selects it for deletion with 'd'
+            for li, lane in enumerate(self._lanes):
+                poly = np.array(lane["polygon"], dtype=np.int32)
+                if cv2.pointPolygonTest(poly, (x, y), False) >= 0:
+                    self._active_lane_idx = li
+                    self._redraw()
+                    return
+
+            # Second check: right-click near a vertex (outside any polygon) deletes it
             for li, lane in enumerate(self._lanes):
                 vi = find_nearest_vertex((x, y), lane["polygon"], threshold=15)
                 if vi is not None:
@@ -200,13 +212,6 @@ class LaneEditor:
                         self._sel_lane_idx = None
                         self._sel_vert_idx = None
                         self._redraw()
-                    return
-
-            for li, lane in enumerate(self._lanes):
-                poly = np.array(lane["polygon"], dtype=np.int32)
-                if cv2.pointPolygonTest(poly, (x, y), False) >= 0:
-                    self._active_lane_idx = li
-                    self._redraw()
                     return
 
     def _delete_active_lane(self):
