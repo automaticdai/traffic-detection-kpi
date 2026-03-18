@@ -215,10 +215,13 @@ class LaneEditor:
             # Right-click inside a polygon selects it for deletion with 'd'
             for li, lane in enumerate(self._lanes):
                 poly = np.array(lane["polygon"], dtype=np.int32)
-                if cv2.pointPolygonTest(poly, (fx, fy), False) >= 0:
+                if cv2.pointPolygonTest(poly, (float(fx), float(fy)), False) >= 0:
                     self._active_lane_idx = li
                     self._redraw()
                     return
+            # Right-click outside any polygon deselects
+            self._active_lane_idx = None
+            self._redraw()
 
     def _delete_selected_vertex(self):
         if self._sel_lane_idx is not None and self._sel_vert_idx is not None:
@@ -303,12 +306,15 @@ class LaneEditor:
                 pts = np.array(self._draw_points, dtype=np.int32)
                 cv2.polylines(canvas, [pts], isClosed=False, color=_WHITE, thickness=2)
 
+        # Add status bar below the frame (doesn't cover video content)
         h, w = canvas.shape[:2]
-        cv2.rectangle(canvas, (0, h - _STATUS_HEIGHT), (w, h), (30, 30, 30), -1)
+        bar = np.zeros((_STATUS_HEIGHT, w, 3), dtype=np.uint8)
+        bar[:] = (30, 30, 30)
         if self._draw_mode:
             status = f"DRAW - click to place points ({len(self._draw_points)} placed), Enter to finish, Esc to cancel"
         else:
             status = "EDIT - n: new | d: delete lane | x: delete vertex | q: quit | Esc: deselect"
-        cv2.putText(canvas, status, (10, h - 12), _FONT, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
+        cv2.putText(bar, status, (10, 28), _FONT, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
+        display = np.vstack([canvas, bar])
 
-        cv2.imshow(self._window_name, canvas)
+        cv2.imshow(self._window_name, display)
