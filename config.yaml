@@ -1,9 +1,13 @@
-video_path: "../trafficData/four lanes.mp4"
-output_dir: "./output"
+video_path: ../trafficData/four lanes.mp4
+output_dir: ./output
 model:
-  path: "yolo11m.pt"
+  path: yolo11m.pt
   confidence: 0.2
-  classes: [car, motorcycle, bus, truck]
+  classes:
+  - car
+  - motorcycle
+  - bus
+  - truck
 tracker:
   type: deepsort
   max_age: 20
@@ -11,9 +15,35 @@ tracker:
   max_cosine_distance: 0.8
   embedder: mobilenet
 lanes:
-  - name: "Lane 1"
-    polygon: [[300, 570], [750, 570], [650, 150], [500, 150]]
-  - name: "Lane 2"
-    polygon: [[610, 550], [750, 550], [650, 150], [596, 150]]
-  - name: "Lane 3"
-    polygon: [[770, 550], [900, 550], [770, 200], [670, 200]]
+- name: Lane 1
+  polygon:
+  - - 0
+    - 652
+  - - 0
+    - 719
+  - - 256
+    - 719
+  - - 888
+    - 415
+  - - 694
+    - 418
+- name: Lane 2
+  polygon:
+  - - 262
+    - 719
+  - - 778
+    - 719
+  - - 1079
+    - 423
+  - - 892
+    - 417
+- name: Lane 3
+  polygon:
+  - - 783
+    - 719
+  - - 1279
+    - 719
+  - - 1279
+    - 429
+  - - 1082
+    - 422
