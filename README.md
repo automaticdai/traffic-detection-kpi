@@ -91,9 +91,9 @@ traffic-lane-editor --config config.yaml --rtsp "rtsp://camera.example.com/strea
 |--------|-------|
 | Move a vertex | Left click + drag |
 | Insert a vertex on an edge | Left click near an edge |
-| Delete a vertex | Right click on a vertex (min 3 kept) |
-| Select a lane for deletion | Right click inside a polygon |
+| Select a lane | Left click inside a polygon |
 | Delete selected lane | `d` |
+| Delete selected vertex | Select vertex, then `x` (min 3 kept) |
 | Draw a new lane | `n`, then click to place points, `Enter` to finish |
-| Cancel current action | `Esc` |
+| Cancel / deselect | `Esc` |
 | Quit | `q` (prompts to save if changes were made) |
