@@ -83,6 +83,13 @@ class LaneEditor:
     def __init__(self, frame: np.ndarray, lanes: list[dict], lane_colors: list[tuple]) -> None:
         self._frame = frame.copy()
         self._h, self._w = frame.shape[:2]
+
+        # Compute display scale to fit screen (max 1280x720 display area)
+        max_dw, max_dh = 1280, 720
+        self._scale = min(1.0, max_dw / self._w, max_dh / self._h)
+        self._dw = round(self._w * self._scale)
+        self._dh = round(self._h * self._scale)
+
         self._lanes = [dict(l) for l in lanes]
         for lane in self._lanes:
             lane["polygon"] = [list(p) for p in lane["polygon"]]
@@ -111,21 +118,12 @@ class LaneEditor:
 
     def _to_frame_coords(self, x: int, y: int) -> tuple[int, int]:
         """Map mouse coordinates from display space to original frame space."""
-        try:
-            _, _, dw, dh = cv2.getWindowImageRect(self._window_name)
-        except cv2.error:
-            return x, y
-        if dw <= 0 or dh <= 0:
-            return x, y
-        # Display image is frame + status bar stacked vertically
-        display_h = self._h + _STATUS_HEIGHT
-        fx = round(x * self._w / dw)
-        fy = round(y * display_h / dh)
+        fx = round(x / self._scale)
+        fy = round(y / self._scale)
         return fx, fy
 
     def run(self) -> tuple[bool, list[dict]]:
-        cv2.namedWindow(self._window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        cv2.resizeWindow(self._window_name, self._w, self._h)
+        cv2.namedWindow(self._window_name, cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(self._window_name, self._mouse_cb)
         self._redraw()
 
@@ -258,8 +256,7 @@ class LaneEditor:
         self._draw_mode = False
         self._draw_points.clear()
         self._modified = True
-        cv2.namedWindow(self._window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        cv2.resizeWindow(self._window_name, self._w, self._h)
+        cv2.namedWindow(self._window_name, cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(self._window_name, self._mouse_cb)
         self._redraw()
 
@@ -309,15 +306,20 @@ class LaneEditor:
                 pts = np.array(self._draw_points, dtype=np.int32)
                 cv2.polylines(canvas, [pts], isClosed=False, color=_WHITE, thickness=2)
 
-        # Add status bar below the frame (doesn't cover video content)
-        h, w = canvas.shape[:2]
-        bar = np.zeros((_STATUS_HEIGHT, w, 3), dtype=np.uint8)
+        # Scale canvas to display size
+        if self._scale < 1.0:
+            display = cv2.resize(canvas, (self._dw, self._dh), interpolation=cv2.INTER_AREA)
+        else:
+            display = canvas
+
+        # Add status bar below the scaled frame
+        bar = np.zeros((_STATUS_HEIGHT, display.shape[1], 3), dtype=np.uint8)
         bar[:] = (30, 30, 30)
         if self._draw_mode:
             status = f"DRAW - click to place points ({len(self._draw_points)} placed), Enter to finish, Esc to cancel"
         else:
             status = "click lane to select | n: new | d: del lane | x: del vertex | q: quit"
         cv2.putText(bar, status, (10, 28), _FONT, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
-        display = np.vstack([canvas, bar])
+        display = np.vstack([display, bar])
 
         cv2.imshow(self._window_name, display)
