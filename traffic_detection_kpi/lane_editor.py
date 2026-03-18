@@ -135,6 +135,8 @@ class LaneEditor:
                 self._redraw()
             elif key == ord("d"):
                 self._delete_active_lane()
+            elif key == ord("x"):
+                self._delete_selected_vertex()
             elif key == 27:  # Esc
                 self._draw_mode = False
                 self._draw_points.clear()
@@ -194,7 +196,7 @@ class LaneEditor:
             self._dragging = False
 
         elif event == cv2.EVENT_RBUTTONDOWN:
-            # First check: right-click inside a polygon selects it for deletion with 'd'
+            # Right-click inside a polygon selects it for deletion with 'd'
             for li, lane in enumerate(self._lanes):
                 poly = np.array(lane["polygon"], dtype=np.int32)
                 if cv2.pointPolygonTest(poly, (x, y), False) >= 0:
@@ -202,17 +204,15 @@ class LaneEditor:
                     self._redraw()
                     return
 
-            # Second check: right-click near a vertex (outside any polygon) deletes it
-            for li, lane in enumerate(self._lanes):
-                vi = find_nearest_vertex((x, y), lane["polygon"], threshold=15)
-                if vi is not None:
-                    if can_delete_vertex(len(lane["polygon"])):
-                        lane["polygon"].pop(vi)
-                        self._modified = True
-                        self._sel_lane_idx = None
-                        self._sel_vert_idx = None
-                        self._redraw()
-                    return
+    def _delete_selected_vertex(self):
+        if self._sel_lane_idx is not None and self._sel_vert_idx is not None:
+            lane = self._lanes[self._sel_lane_idx]
+            if can_delete_vertex(len(lane["polygon"])):
+                lane["polygon"].pop(self._sel_vert_idx)
+                self._sel_lane_idx = None
+                self._sel_vert_idx = None
+                self._modified = True
+                self._redraw()
 
     def _delete_active_lane(self):
         if self._active_lane_idx is not None and self._active_lane_idx < len(self._lanes):
@@ -291,7 +291,7 @@ class LaneEditor:
         if self._draw_mode:
             status = f"DRAW - click to place points ({len(self._draw_points)} placed), Enter to finish, Esc to cancel"
         else:
-            status = "EDIT - n: new lane | d: delete lane | q: quit | Esc: deselect"
+            status = "EDIT - n: new | d: delete lane | x: delete vertex | q: quit | Esc: deselect"
         cv2.putText(canvas, status, (10, h - 12), _FONT, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
 
         cv2.imshow(self._window_name, canvas)
