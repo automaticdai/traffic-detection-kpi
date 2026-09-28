@@ -13,16 +13,6 @@ def _make_obj(track_id: int, center: tuple[int, int], half_w: int = 10, half_h: 
     )
 
 
-def test_contains_point_inside():
-    lane = LaneZone("L1", [[0, 0], [100, 0], [100, 100], [0, 100]])
-    assert lane.contains((50, 50)) is True
-
-
-def test_contains_point_outside():
-    lane = LaneZone("L1", [[0, 0], [100, 0], [100, 100], [0, 100]])
-    assert lane.contains((200, 200)) is False
-
-
 def test_overlap_ratio_fully_inside():
     lane = LaneZone("L1", [[0, 0], [200, 0], [200, 200], [0, 200]])
     ratio = lane.overlap_ratio((50, 50, 100, 100))

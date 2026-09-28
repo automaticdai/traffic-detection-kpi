@@ -1,4 +1,4 @@
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import Polygon, box
 
 from traffic_detection_kpi import TrackedObject
 
@@ -9,9 +9,6 @@ class LaneZone:
     def __init__(self, name: str, polygon_coords: list[list[int]]):
         self.name = name
         self.polygon = Polygon(polygon_coords)
-
-    def contains(self, point: tuple[int, int]) -> bool:
-        return self.polygon.contains(Point(point))
 
     def overlap_ratio(self, bbox: tuple[int, int, int, int]) -> float:
         """Return fraction of bbox area that overlaps with this lane polygon."""
