@@ -6,16 +6,27 @@ Detect and measure key traffic metrics from video feeds using computer vision.
 
 - Live video stream from YouTube
 - Live video stream via RTSP / RTMP
-- Live stream from WebRTC
 - Recorded video files
 
 ## Features
 
-- **Lane detection** — identifies traffic lanes using a bird's-eye-view (BEV) map
-- **Vehicle detection** — detects cars in each frame
-- **Per-lane metrics** — measures traffic throughput and vehicle count
-- **Per-vehicle metrics** — tracks waiting time for each car
-- **Output** — displays results on screen and saves them to a JSON file
+- **Lane regions** — lanes are polygons defined in the config, drawn and adjusted with the interactive lane editor
+- **Vehicle detection** — YOLO detects vehicles in each frame; DeepSORT tracks them across frames
+- **Per-lane metrics** — throughput, queue length, and vehicle class breakdown
+- **Per-vehicle metrics** — dwell time within each lane
+- **Output** — displays results on screen and saves them to a JSON file with charts
+
+## Metrics
+
+Written to `output/metrics.json`, with charts in `output/charts/`.
+
+| Metric | Definition |
+|--------|------------|
+| `throughput_total` | Completed passages through the lane. A tracked vehicle is counted when it *leaves* the lane — moving to another lane, disappearing, or the run ending — provided it stayed at least 0.2 s. Counted at most once per lane, so bounding-box jitter across a boundary cannot inflate it. A vehicle that changes lanes counts once in each lane it traverses. |
+| `throughput_rate_avg` | `throughput_total / duration_seconds`. For live streams `duration_seconds` is wall-clock elapsed, not frame count ÷ fps, since a stream that outpaces inference drops frames. |
+| `queue_length_timeseries` | Vehicles present in the lane, sampled once per second. |
+| `avg_dwell_time_timeseries` | Mean time vehicles have spent in *their current lane*, sampled once per second. Resets when a vehicle changes lane. |
+| `vehicle_counts` | Per-class breakdown of the vehicles counted in `throughput_total`. |
 
 ## Usage
 
