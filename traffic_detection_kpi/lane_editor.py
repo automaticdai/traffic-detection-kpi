@@ -77,6 +77,8 @@ _WHITE = (255, 255, 255)
 _STATUS_HEIGHT = 40
 _VERTEX_RADIUS = 6
 _SELECTED_RADIUS = 8
+_VERTEX_GRAB_PX = 15.0
+_EDGE_GRAB_PX = 10.0
 
 
 class LaneEditor:
@@ -89,6 +91,9 @@ class LaneEditor:
         self._scale = min(1.0, max_dw / self._w, max_dh / self._h)
         self._dw = round(self._w * self._scale)
         self._dh = round(self._h * self._scale)
+        # Hit radii and marker sizes are specified in on-screen pixels; this
+        # converts them to frame pixels so they stay constant on screen.
+        self._px = 1.0 / self._scale
 
         self._lanes = [dict(l) for l in lanes]
         for lane in self._lanes:
@@ -161,9 +166,6 @@ class LaneEditor:
                 if self._draw_mode and len(self._draw_points) >= 3:
                     self._finish_new_lane()
 
-        cv2.destroyWindow(self._window_name)
-        return False, self._original_lanes
-
     def _mouse_cb(self, event, x, y, flags, param):
         # Map display coordinates to original frame coordinates
         fx, fy = self._to_frame_coords(x, y)
@@ -176,7 +178,7 @@ class LaneEditor:
 
         if event == cv2.EVENT_LBUTTONDOWN:
             for li, lane in enumerate(self._lanes):
-                vi = find_nearest_vertex((fx, fy), lane["polygon"], threshold=15)
+                vi = find_nearest_vertex((fx, fy), lane["polygon"], threshold=_VERTEX_GRAB_PX * self._px)
                 if vi is not None:
                     self._sel_lane_idx = li
                     self._sel_vert_idx = vi
@@ -185,7 +187,7 @@ class LaneEditor:
                     return
 
             for li, lane in enumerate(self._lanes):
-                ei = find_nearest_edge((fx, fy), lane["polygon"], threshold=10)
+                ei = find_nearest_edge((fx, fy), lane["polygon"], threshold=_EDGE_GRAB_PX * self._px)
                 if ei is not None:
                     new_pt = project_point_on_edge(
                         (fx, fy), lane["polygon"][ei],
@@ -290,9 +292,9 @@ class LaneEditor:
 
             for vi, (vx, vy) in enumerate(lane["polygon"]):
                 if i == self._sel_lane_idx and vi == self._sel_vert_idx:
-                    cv2.circle(canvas, (vx, vy), _SELECTED_RADIUS, color, -1)
+                    cv2.circle(canvas, (vx, vy), round(_SELECTED_RADIUS * self._px), color, -1)
                 else:
-                    cv2.circle(canvas, (vx, vy), _VERTEX_RADIUS, _WHITE, 1)
+                    cv2.circle(canvas, (vx, vy), round(_VERTEX_RADIUS * self._px), _WHITE, 1)
 
             pts = lane["polygon"]
             cx = sum(p[0] for p in pts) // len(pts)
@@ -301,7 +303,7 @@ class LaneEditor:
 
         if self._draw_mode and self._draw_points:
             for pt in self._draw_points:
-                cv2.circle(canvas, tuple(pt), _VERTEX_RADIUS, _WHITE, -1)
+                cv2.circle(canvas, tuple(pt), round(_VERTEX_RADIUS * self._px), _WHITE, -1)
             if len(self._draw_points) > 1:
                 pts = np.array(self._draw_points, dtype=np.int32)
                 cv2.polylines(canvas, [pts], isClosed=False, color=_WHITE, thickness=2)

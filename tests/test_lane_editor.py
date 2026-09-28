@@ -130,3 +130,40 @@ def test_no_delete_below_three_vertices():
     assert can_delete_vertex(4) is True
     assert can_delete_vertex(3) is False
     assert can_delete_vertex(2) is False
+
+
+def _editor(monkeypatch, frame_w, frame_h, polygon):
+    import numpy as np
+    from traffic_detection_kpi.lane_editor import LaneEditor
+
+    frame = np.zeros((frame_h, frame_w, 3), dtype=np.uint8)
+    editor = LaneEditor(frame, [{"name": "L1", "polygon": polygon}], [(0, 200, 0)])
+    monkeypatch.setattr(editor, "_redraw", lambda: None)
+    return editor
+
+
+def test_vertex_hit_threshold_scales_with_display(monkeypatch):
+    """On a downscaled frame the grab radius must stay constant on screen."""
+    import cv2
+
+    # 2560x1440 displays at scale 0.5, so a vertex at frame (200,200) sits at (100,100).
+    editor = _editor(monkeypatch, 2560, 1440, [[200, 200], [800, 200], [800, 800], [200, 800]])
+    assert editor._scale == 0.5
+
+    # 10px away on screen — comfortably inside a 15px on-screen grab radius.
+    editor._mouse_cb(cv2.EVENT_LBUTTONDOWN, 110, 100, 0, None)
+    assert editor._sel_vert_idx == 0
+
+
+def test_vertex_hit_threshold_unchanged_at_full_scale(monkeypatch):
+    import cv2
+
+    editor = _editor(monkeypatch, 640, 480, [[200, 200], [400, 200], [400, 400], [200, 400]])
+    assert editor._scale == 1.0
+
+    editor._mouse_cb(cv2.EVENT_LBUTTONDOWN, 210, 200, 0, None)
+    assert editor._sel_vert_idx == 0
+
+    editor._sel_vert_idx = None
+    editor._mouse_cb(cv2.EVENT_LBUTTONDOWN, 300, 300, 0, None)
+    assert editor._sel_vert_idx is None
