@@ -1,3 +1,6 @@
 __pycache__
 *.pt
 output/
+build/
+dist/
+*.egg-info/

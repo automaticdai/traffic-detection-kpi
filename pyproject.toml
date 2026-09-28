@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "traffic-detection-kpi"
@@ -15,10 +15,17 @@ dependencies = [
     "seaborn>=0.12",
     "pyyaml>=6.0",
     "yt-dlp",
+    # deep-sort-realtime imports pkg_resources at module load without declaring
+    # setuptools. Fresh environments no longer ship setuptools at all, and
+    # setuptools 81+ dropped pkg_resources, so both a floor and a ceiling apply.
+    "setuptools<81",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+
+[tool.setuptools]
+packages = ["traffic_detection_kpi"]
 
 [project.scripts]
 traffic-kpi = "traffic_detection_kpi.__main__:main"
