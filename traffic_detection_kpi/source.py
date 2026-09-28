@@ -11,6 +11,14 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# YouTube serves live streams as HLS with no muxed (video+audio) format, and
+# yt-dlp's `best` only matches formats carrying both — so it matches nothing on a
+# live stream. Ask for video explicitly; this pipeline never touches audio. The
+# trailing `best` keeps recorded videos, which do have muxed formats, working.
+YDL_FORMAT = (
+    "bestvideo[height<=720][ext=mp4]/bestvideo[height<=720]/bestvideo/best"
+)
+
 
 @runtime_checkable
 class VideoSource(Protocol):
@@ -83,7 +91,7 @@ class YouTubeSource:
     @staticmethod
     def _resolve(url: str) -> tuple[str, float | None]:
         opts = {
-            "format": "best[height<=720][ext=mp4]/best[height<=720]/best",
+            "format": YDL_FORMAT,
             "quiet": True,
             "no_warnings": True,
         }

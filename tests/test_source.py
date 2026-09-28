@@ -357,3 +357,52 @@ class TestRtspSource:
 
         assert ret is False
         assert mock_cap.read.call_count == 6  # 1 initial + 5 retries
+
+
+class TestYouTubeFormatSelection:
+    """YouTube serves live streams as HLS with no muxed (video+audio) format.
+
+    yt-dlp's `best` selector only matches formats carrying both streams, so it
+    matches nothing on a live stream and resolution fails outright.
+    """
+
+    _LIVE_FORMATS = [
+        {"format_id": "233", "url": "u", "ext": "mp4", "vcodec": "none",
+         "acodec": "mp4a.40.5", "protocol": "m3u8_native"},
+        {"format_id": "230", "url": "u", "ext": "mp4", "vcodec": "avc1.4D401E",
+         "acodec": "none", "height": 360, "fps": 30, "protocol": "m3u8_native"},
+        {"format_id": "232", "url": "u", "ext": "mp4", "vcodec": "avc1.4D401F",
+         "acodec": "none", "height": 720, "fps": 30, "protocol": "m3u8_native"},
+    ]
+
+    def _select(self, format_string, formats):
+        import yt_dlp
+
+        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "simulate": True})
+        selector = ydl.build_format_selector(format_string)
+        return [f["format_id"] for f in selector(
+            {"formats": formats, "incomplete_formats": False}
+        )]
+
+    def test_selects_video_only_format_from_live_stream(self):
+        from traffic_detection_kpi.source import YDL_FORMAT
+
+        assert self._select(YDL_FORMAT, self._LIVE_FORMATS) == ["232"]
+
+    def test_prefers_720p_when_higher_resolutions_offered(self):
+        from traffic_detection_kpi.source import YDL_FORMAT
+
+        formats = self._LIVE_FORMATS + [
+            {"format_id": "270", "url": "u", "ext": "mp4", "vcodec": "avc1.640028",
+             "acodec": "none", "height": 1080, "fps": 30, "protocol": "m3u8_native"},
+        ]
+        assert self._select(YDL_FORMAT, formats) == ["232"]
+
+    def test_still_selects_muxed_format_for_recorded_video(self):
+        from traffic_detection_kpi.source import YDL_FORMAT
+
+        formats = [
+            {"format_id": "18", "url": "u", "ext": "mp4", "vcodec": "avc1.42001E",
+             "acodec": "mp4a.40.2", "height": 360, "fps": 30, "protocol": "https"},
+        ]
+        assert self._select(YDL_FORMAT, formats) == ["18"]
