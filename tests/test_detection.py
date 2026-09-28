@@ -61,3 +61,22 @@ def test_detect_returns_detection_dataclass():
 
     assert isinstance(detections[0], Detection)
     assert detections[0].bbox == (100, 200, 60, 70)  # converted to xywh
+
+
+def test_detect_passes_class_ids_to_model():
+    """Class filtering belongs in inference, not in a post-hoc loop."""
+    from traffic_detection_kpi.detection import YoloDetector
+
+    mock_result = MagicMock()
+    mock_result.boxes = []
+    mock_result.names = {2: "car", 7: "truck"}
+
+    with patch("traffic_detection_kpi.detection.YOLO") as MockYOLO:
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [mock_result]
+        MockYOLO.return_value = mock_model
+
+        detector = YoloDetector("fake.pt", 0.2, ["car", "truck"], class_ids=[2, 7])
+        detector.detect(MagicMock())
+
+    assert mock_model.predict.call_args.kwargs["classes"] == [2, 7]

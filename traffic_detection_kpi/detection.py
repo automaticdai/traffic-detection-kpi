@@ -4,13 +4,23 @@ from traffic_detection_kpi import Detection
 
 
 class YoloDetector:
-    def __init__(self, model_path: str, confidence: float, class_filter: list[str]):
+    def __init__(
+        self,
+        model_path: str,
+        confidence: float,
+        class_filter: list[str],
+        class_ids: list[int] | None = None,
+    ):
         self.model = YOLO(model_path)
         self.confidence = confidence
         self.allowed_names = set(class_filter)
+        # Filtering during inference is cheaper than discarding boxes afterwards.
+        self.class_ids = list(class_ids) if class_ids else None
 
     def detect(self, frame) -> list[Detection]:
-        results = self.model.predict(frame, conf=self.confidence, verbose=False)
+        results = self.model.predict(
+            frame, conf=self.confidence, classes=self.class_ids, verbose=False
+        )
         result = results[0]
         detections = []
         for box in result.boxes:
